@@ -44,8 +44,10 @@ This system monitors an LNbits Lightning wallet for incoming payments and automa
 **Flash SD Card:**
 ```bash
 # Use Raspberry Pi Imager to flash 32-bit Pi OS
+[raspberry pi zero image](https://downloads.raspberrypi.org/raspios_armhf/images/raspios_armhf-2020-05-28/)
 # Add these files to boot partition:
 ```
+- I had to use one of these images: [raspberry pi zero image](https://downloads.raspberrypi.org/raspios_armhf/images/raspios_armhf-2020-05-28/)
 
 **boot/ssh** (empty file)
 ```
