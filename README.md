@@ -6,6 +6,11 @@ A Bitcoin Lightning Network payment-activated dual beer tap controller using Ras
 
 This enhanced system monitors **two different LNbits Lightning wallets** for incoming payments and automatically activates the corresponding 12V solenoid valve when payments are received. Perfect for Bitcoin-powered dual beer taps, different beer types, pricing tiers, or any beverage dispensing application requiring independent payment-activated hardware control.
 
+- bitcoinswitch_tester.py - python file to test your lnbits api
+- lightning_solenoid_polling.py - python script to test controls of a single solenoid
+- dual_beer_tap.py - final solution to control 2 beer taps, each for a different lnbits wallet
+- config_example.py - example configurations for dual_beer_tap
+
 ## ⚡ Features
 
 - **Dual beer tap system** - Monitor two different LNbits wallets simultaneously
