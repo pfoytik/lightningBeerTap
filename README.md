@@ -35,3 +35,16 @@ This enhanced system monitors **two different LNbits Lightning wallets** for inc
 - **2x 12V Solenoid Valves** (2-wire, normally closed recommended) - for beer tap control
 - **12V Power Supply** (5A+ recommended for dual beer taps)
 - **Jumper wires** for connections
+
+### Power Circuit (12V side):
+```
+12V Power Supply (+) → Relay COM terminal
+Relay NO terminal    → Solenoid cable 2
+Solenoid cable 1     → 12V Power Supply (-)
+```
+### Control Circuit (Pi side):
+```
+Pi GPIO 18 (Pin 12) → Relay S pin ✅
+Pi 5V (Pin 2)       → Relay + pin ✅  
+Pi GND (Pin 6)      → Relay - pin ✅
+```
