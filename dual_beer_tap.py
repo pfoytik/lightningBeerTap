@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-LNbits Dual Wallet Payment Monitor
+LNbits Dual Wallet Payment Monitor with Manual Button Override
 Monitors two different wallets and controls two separate taps/solenoids
+Includes physical button support for manual activation
 """
 
 import requests
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import RPi.GPIO as GPIO
 import sys
 from dateutil import parser as date_parser
+import threading
 
 # Wallet 1 Configuration
 WALLET_1_CONFIG = {
@@ -20,10 +22,12 @@ WALLET_1_CONFIG = {
     "wallet_id": "your-wallet-1-id",
     "api_key": "your-wallet-1-api-key",
     "relay_pin": 18,  # GPIO pin for first solenoid
+    "button_pin": 23,  # GPIO pin for first button (Pin 16)
     "min_payment_amount": 1,  # Minimum sats to trigger
     "sats_per_second": 10,    # Pour rate
     "max_pour_duration": 10,  # Safety cap
-    "default_duration": 5     # Fallback duration
+    "default_duration": 5,    # Fallback duration
+    "manual_pour_duration": 5  # Duration for manual button press
 }
 
 # Wallet 2 Configuration
@@ -33,15 +37,19 @@ WALLET_2_CONFIG = {
     "wallet_id": "your-wallet-2-id",
     "api_key": "your-wallet-2-api-key", 
     "relay_pin": 19,  # GPIO pin for second solenoid
+    "button_pin": 24,  # GPIO pin for second button (Pin 18)
     "min_payment_amount": 5,  # Different minimum (example: premium tap)
     "sats_per_second": 15,    # Different pour rate
     "max_pour_duration": 15,  # Different max duration
-    "default_duration": 7     # Different fallback
+    "default_duration": 7,    # Different fallback
+    "manual_pour_duration": 7  # Duration for manual button press
 }
 
 # General Configuration
 POLL_INTERVAL = 1  # How often to check payment status (seconds)
 LOOKBACK_MINUTES = 2  # How far back to look for recent payments
+BUTTON_DEBOUNCE_TIME = 300  # Milliseconds to debounce button
+BUTTON_COOLDOWN_TIME = 2  # Seconds to wait before allowing another button press
 
 # Setup logging
 logging.basicConfig(
@@ -58,24 +66,83 @@ class DualWalletPaymentMonitor:
     def __init__(self):
         self.wallets = [WALLET_1_CONFIG, WALLET_2_CONFIG]
         self.wallet_states = {}  # Store state for each wallet
+        self.solenoid_locks = {}  # Thread locks to prevent simultaneous activation
+        self.button_last_press = {}  # Track last button press time
         self.setup_gpio()
         self.setup_wallet_states()
+        self.setup_buttons()
         
     def setup_gpio(self):
-        """Initialize GPIO for both relay controls"""
+        """Initialize GPIO for both relay controls and buttons"""
         try:
             GPIO.setmode(GPIO.BCM)
             
-            # Setup both relay pins
+            # Setup relay pins (outputs)
             for wallet in self.wallets:
                 pin = wallet['relay_pin']
                 GPIO.setup(pin, GPIO.OUT)
                 GPIO.output(pin, GPIO.LOW)  # Relay off initially
-                logger.info(f"GPIO initialized for {wallet['name']}: Pin {pin}")
+                logger.info(f"GPIO relay initialized for {wallet['name']}: Pin {pin}")
+                
+                # Initialize thread lock for this solenoid
+                self.solenoid_locks[wallet['relay_pin']] = threading.Lock()
+                
+                # Initialize button press tracking
+                self.button_last_press[wallet['button_pin']] = 0
+            
+            # Setup button pins (inputs with pull-up resistors)
+            for wallet in self.wallets:
+                button_pin = wallet['button_pin']
+                GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                logger.info(f"GPIO button initialized for {wallet['name']}: Pin {button_pin}")
                 
         except Exception as e:
             logger.error(f"GPIO setup failed: {e}")
             sys.exit(1)
+    
+    def setup_buttons(self):
+        """Setup button event detection with callbacks"""
+        try:
+            for wallet in self.wallets:
+                button_pin = wallet['button_pin']
+                # Detect falling edge (button press) with debounce
+                GPIO.add_event_detect(
+                    button_pin,
+                    GPIO.FALLING,
+                    callback=lambda channel, w=wallet: self.button_callback(channel, w),
+                    bouncetime=BUTTON_DEBOUNCE_TIME
+                )
+                logger.info(f"Button callback registered for {wallet['name']} on Pin {button_pin}")
+        except Exception as e:
+            logger.error(f"Button setup failed: {e}")
+            sys.exit(1)
+    
+    def button_callback(self, channel, wallet_config):
+        """Handle button press events"""
+        wallet_name = wallet_config['name']
+        button_pin = wallet_config['button_pin']
+        
+        # Check cooldown period to prevent double triggers
+        current_time = time.time()
+        last_press_time = self.button_last_press.get(button_pin, 0)
+        time_since_last_press = current_time - last_press_time
+        
+        if time_since_last_press < BUTTON_COOLDOWN_TIME:
+            logger.debug(f"🔘 {wallet_name} button cooldown active ({time_since_last_press:.1f}s < {BUTTON_COOLDOWN_TIME}s), ignoring press")
+            return
+        
+        # Update last press time
+        self.button_last_press[button_pin] = current_time
+        
+        logger.info(f"🔘 MANUAL BUTTON PRESSED for {wallet_name} (Pin {button_pin})")
+        
+        # Run activation in a separate thread to avoid blocking
+        activation_thread = threading.Thread(
+            target=self.activate_solenoid_manual,
+            args=(wallet_config,)
+        )
+        activation_thread.daemon = True
+        activation_thread.start()
     
     def setup_wallet_states(self):
         """Initialize tracking state for each wallet"""
@@ -94,9 +161,17 @@ class DualWalletPaymentMonitor:
     def cleanup_gpio(self):
         """Clean up GPIO on exit"""
         try:
+            # Remove event detection
+            for wallet in self.wallets:
+                try:
+                    GPIO.remove_event_detect(wallet['button_pin'])
+                except:
+                    pass
+            
             # Turn off all relays
             for wallet in self.wallets:
                 GPIO.output(wallet['relay_pin'], GPIO.LOW)
+            
             GPIO.cleanup()
             logger.info("GPIO cleaned up")
         except:
@@ -117,25 +192,60 @@ class DualWalletPaymentMonitor:
         
         return round(duration, 1)
     
+    def activate_solenoid_manual(self, wallet_config):
+        """Manually activate solenoid via button press"""
+        relay_pin = wallet_config['relay_pin']
+        wallet_name = wallet_config['name']
+        pour_duration = wallet_config['manual_pour_duration']
+        
+        # Use lock to prevent simultaneous activation
+        lock = self.solenoid_locks.get(relay_pin)
+        if lock and lock.locked():
+            logger.warning(f"⚠️  {wallet_name} solenoid already active, ignoring button press")
+            return
+        
+        try:
+            with lock:
+                logger.info(f"🔘 MANUAL ACTIVATION: {wallet_name}")
+                logger.info(f"⏱️  Pour duration: {pour_duration} seconds")
+                logger.info(f"🚿 Activating {wallet_name} solenoid (Pin {relay_pin})...")
+                
+                GPIO.output(relay_pin, GPIO.HIGH)  # Turn on relay
+                time.sleep(pour_duration)
+                
+        except Exception as e:
+            logger.error(f"❌ Error controlling {wallet_name} solenoid: {e}")
+        finally:
+            GPIO.output(relay_pin, GPIO.LOW)
+            logger.info(f"✅ {wallet_name} solenoid deactivated after {pour_duration}s (MANUAL)")
+    
     def activate_solenoid(self, amount=0, payment_hash="", wallet_config=None):
         """Activate solenoid for calculated duration based on payment amount"""
         if not wallet_config:
             logger.error("No wallet config provided for solenoid activation")
             return
+        
+        relay_pin = wallet_config['relay_pin']
+        wallet_name = wallet_config['name']
+        
+        # Use lock to prevent simultaneous activation
+        lock = self.solenoid_locks.get(relay_pin)
+        if lock and lock.locked():
+            logger.warning(f"⚠️  {wallet_name} solenoid already active, payment queued: {amount} sats")
+            return
             
         try:
-            pour_duration = self.calculate_pour_duration(amount, wallet_config)
-            relay_pin = wallet_config['relay_pin']
-            wallet_name = wallet_config['name']
-            
-            logger.info(f"💧 {wallet_name} payment received: {amount} sats")
-            logger.info(f"⏱️  Calculated pour duration: {pour_duration} seconds")
-            logger.info(f"🚿 Activating {wallet_name} solenoid (Pin {relay_pin})...")
-            logger.info(f"   Hash: {payment_hash[:16]}...")
-            
-            GPIO.output(relay_pin, GPIO.HIGH)  # Turn on relay
-            time.sleep(pour_duration)
-            
+            with lock:
+                pour_duration = self.calculate_pour_duration(amount, wallet_config)
+                
+                logger.info(f"💧 {wallet_name} payment received: {amount} sats")
+                logger.info(f"⏱️  Calculated pour duration: {pour_duration} seconds")
+                logger.info(f"🚿 Activating {wallet_name} solenoid (Pin {relay_pin})...")
+                logger.info(f"   Hash: {payment_hash[:16]}...")
+                
+                GPIO.output(relay_pin, GPIO.HIGH)  # Turn on relay
+                time.sleep(pour_duration)
+                
         except Exception as e:
             logger.error(f"❌ Error controlling {wallet_name} solenoid: {e}")
         finally:
@@ -368,7 +478,7 @@ class DualWalletPaymentMonitor:
     
     def run(self):
         """Main monitoring loop"""
-        logger.info("🚀 Starting Dual Wallet Lightning Payment Monitor")
+        logger.info("🚀 Starting Dual Wallet Lightning Payment Monitor with Manual Buttons")
         logger.info(f"🔄 Poll interval: {POLL_INTERVAL} seconds")
         logger.info(f"🕐 Lookback time: {LOOKBACK_MINUTES} minutes")
         
@@ -382,12 +492,16 @@ class DualWalletPaymentMonitor:
                 wallet_name = wallet_info.get('name', wallet_config['name'])
                 logger.info(f"✅ {wallet_config['name']} connected: {wallet_name}")
                 logger.info(f"💳 {wallet_config['name']} balance: {balance_sats} sats")
-                logger.info(f"🔧 {wallet_config['name']} config: Pin {wallet_config['relay_pin']}, Min {wallet_config['min_payment_amount']} sats, {wallet_config['sats_per_second']} sats/sec")
+                logger.info(f"🔧 {wallet_config['name']} config: Pin {wallet_config['relay_pin']}, Button Pin {wallet_config['button_pin']}")
+                logger.info(f"   Min {wallet_config['min_payment_amount']} sats, {wallet_config['sats_per_second']} sats/sec, Manual: {wallet_config['manual_pour_duration']}s")
             else:
                 logger.error(f"❌ Could not verify {wallet_config['name']} connection")
                 return
         
         logger.info("👀 Monitoring both wallets for payments... (Ctrl+C to stop)")
+        logger.info("🔘 Manual buttons active on GPIO pins: " + 
+                   f"{WALLET_1_CONFIG['button_pin']} ({WALLET_1_CONFIG['name']}), " +
+                   f"{WALLET_2_CONFIG['button_pin']} ({WALLET_2_CONFIG['name']})")
         logger.info("⚡ This version catches BOTH fast internal AND slow external payments!")
         logger.info("💰 Send Lightning payments to either wallet to test the system")
         
@@ -442,9 +556,19 @@ def main():
             missing_config.append(f"WALLET_{i}_CONFIG['wallet_id']")
     
     # Check for GPIO pin conflicts
-    pins = [WALLET_1_CONFIG['relay_pin'], WALLET_2_CONFIG['relay_pin']]
-    if pins[0] == pins[1]:
-        missing_config.append("GPIO pins must be different for each wallet")
+    relay_pins = [WALLET_1_CONFIG['relay_pin'], WALLET_2_CONFIG['relay_pin']]
+    button_pins = [WALLET_1_CONFIG['button_pin'], WALLET_2_CONFIG['button_pin']]
+    
+    if relay_pins[0] == relay_pins[1]:
+        missing_config.append("Relay GPIO pins must be different for each wallet")
+    
+    if button_pins[0] == button_pins[1]:
+        missing_config.append("Button GPIO pins must be different for each wallet")
+    
+    # Check if any button pin conflicts with relay pins
+    all_pins = relay_pins + button_pins
+    if len(all_pins) != len(set(all_pins)):
+        missing_config.append("All GPIO pins (relay and button) must be unique")
     
     if missing_config:
         print("❌ ERROR: Please configure the following:")
