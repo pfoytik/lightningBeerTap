@@ -36,6 +36,24 @@ This enhanced system monitors **two different LNbits Lightning wallets** for inc
 - **12V Power Supply** (5A+ recommended for dual beer taps)
 - **Jumper wires** for connections
 
+### Pi pinout
+```
+SD Card Side    |    Edge Side
+(1) 3V3         |    5V (2)
+(3) GPIO2       |    5V (4)  
+(5) GPIO3       |    GND (6)
+(7) GPIO4       |    GPIO14 (8)
+(9) GND         |    GPIO15 (10)
+(11) GPIO17     |    GPIO18 (12) ← Connect relay IN here
+```
+### Relay Connections
+```
+Relay Module → Pi Zero W Pin
+VCC         → Pin 2 (5V)
+GND         → Pin 6 (GND) 
+IN          → Pin 12 (GPIO 18)
+```
+
 ### Power Circuit (12V side):
 ```
 12V Power Supply (+) → Relay COM terminal
