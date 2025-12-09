@@ -197,6 +197,7 @@ class DualWalletPaymentMonitor:
         relay_pin = wallet_config['relay_pin']
         wallet_name = wallet_config['name']
         pour_duration = wallet_config['manual_pour_duration']
+        button_pin = wallet_config['button_pin']
         
         # Use lock to prevent simultaneous activation
         lock = self.solenoid_locks.get(relay_pin)
@@ -218,6 +219,11 @@ class DualWalletPaymentMonitor:
         finally:
             GPIO.output(relay_pin, GPIO.LOW)
             logger.info(f"✅ {wallet_name} solenoid deactivated after {pour_duration}s (MANUAL)")
+            
+            # CRITICAL: Suppress button AFTER relay turns off to prevent interference spike
+            time.sleep(0.1)  # Wait for relay to fully settle
+            self.button_last_press[button_pin] = time.time()
+            logger.debug(f"🛡️  Button suppression extended after manual relay-off to prevent interference")
     
     def activate_solenoid(self, amount=0, payment_hash="", wallet_config=None):
         """Activate solenoid for calculated duration based on payment amount"""
@@ -227,6 +233,7 @@ class DualWalletPaymentMonitor:
         
         relay_pin = wallet_config['relay_pin']
         wallet_name = wallet_config['name']
+        button_pin = wallet_config['button_pin']
         
         # Use lock to prevent simultaneous activation
         lock = self.solenoid_locks.get(relay_pin)
@@ -237,6 +244,9 @@ class DualWalletPaymentMonitor:
         try:
             with lock:
                 pour_duration = self.calculate_pour_duration(amount, wallet_config)
+                
+                # Suppress button BEFORE turning on relay
+                self.button_last_press[button_pin] = time.time()
                 
                 logger.info(f"💧 {wallet_name} payment received: {amount} sats")
                 logger.info(f"⏱️  Calculated pour duration: {pour_duration} seconds")
@@ -253,6 +263,11 @@ class DualWalletPaymentMonitor:
             if wallet_config:
                 GPIO.output(wallet_config['relay_pin'], GPIO.LOW)
                 logger.info(f"✅ {wallet_config['name']} solenoid deactivated after {pour_duration}s")
+                
+                # CRITICAL: Suppress button AFTER relay turns off to prevent interference spike
+                time.sleep(0.1)  # Wait for relay to fully settle
+                self.button_last_press[button_pin] = time.time()
+                logger.debug(f"🛡️  Button suppression extended after relay-off to prevent interference")
     
     def parse_payment_time(self, time_str):
         """Parse payment timestamp from various formats and ensure timezone awareness"""
