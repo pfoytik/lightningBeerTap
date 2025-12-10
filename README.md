@@ -53,6 +53,57 @@ Pin 19 - GPIO10                Pin 20 - GND (Button 2)
 Pin 35 - GPIO19 (Relay 2)      Pin 36 - GPIO16
 Pin 37 - GPIO26                Pin 38 - GPIO20
 Pin 39 - GND (Relay 2)         Pin 40 - GPIO21
+
+┌────────────────────────────────────────────────────────────────────────┐
+│         LIGHTNING PAYMENT DUAL SOLENOID SYSTEM WITH BUTTONS            │
+└────────────────────────────────────────────────────────────────────────┘
+
+RELAY 1 (GPIO 18):
+═══════════════════
+Pi Pin 12 (GPIO18) ──────► Relay 1 Signal (S)
+Pi Pin 2  (5V)     ──────► Relay 1 VCC (+)
+Pi Pin 6  (GND)    ──────► Relay 1 GND (-)
+
+    Relay 1 Power Side:
+    12V+ ──► COM (center)
+    NO (left) ──► Solenoid 1 Wire 1
+    Solenoid 1 Wire 2 ──► 12V-
+
+
+RELAY 2 (GPIO 19):
+═══════════════════
+Pi Pin 35 (GPIO19) ──────► Relay 2 Signal (S)
+Pi Pin 4  (5V)     ──────► Relay 2 VCC (+)
+Pi Pin 39 (GND)    ──────► Relay 2 GND (-)
+
+    Relay 2 Power Side:
+    12V+ ──► COM (center)
+    NO (left) ──► Solenoid 2 Wire 1
+    Solenoid 2 Wire 2 ──► 12V-
+
+
+BUTTONS:
+════════
+Pi Pin 16 (GPIO23) ──┬─[ Button 1 ]─┬── Pi Pin 14 (GND)
+                     └───────────────┘
+
+Pi Pin 18 (GPIO24) ──┬─[ Button 2 ]─┬── Pi Pin 20 (GND)
+                     └───────────────┘
+
+
+12V POWER DISTRIBUTION:
+═══════════════════════
+        ┌─────────────┐
+        │  12V Power  │
+        │   Supply    │
+        │   (+)  (-)  │
+        └──┬──────┬───┘
+           │      │
+           │      ├──────► Solenoid 1 Wire 2
+           │      └──────► Solenoid 2 Wire 2
+           │
+           ├────────────► Relay 1 COM
+           └────────────► Relay 2 COM
 ```
 ### Relay Connections
 ```
