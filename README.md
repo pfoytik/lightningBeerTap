@@ -38,13 +38,21 @@ This enhanced system monitors **two different LNbits Lightning wallets** for inc
 
 ### Pi pinout
 ```
-SD Card Side    |    Edge Side
-(1) 3V3         |    5V (2)
-(3) GPIO2       |    5V (4)  
-(5) GPIO3       |    GND (6)
-(7) GPIO4       |    GPIO14 (8)
-(9) GND         |    GPIO15 (10)
-(11) GPIO17     |    GPIO18 (12) ← Connect relay IN here
+Left Side (Odd pins):          Right Side (Even pins):
+═════════════════════          ═══════════════════════
+Pin 1  - 3V3                   Pin 2  - 5V (Relay 1)
+Pin 3  - GPIO2                 Pin 4  - 5V (Relay 2)
+Pin 5  - GPIO3                 Pin 6  - GND (Relay 1)
+...                            ...
+Pin 11 - GPIO17                Pin 12 - GPIO18 (Relay 1)
+Pin 13 - GPIO27                Pin 14 - GND (Button 1)
+Pin 15 - GPIO22                Pin 16 - GPIO23 (Button 1)
+Pin 17 - 3V3                   Pin 18 - GPIO24 (Button 2)
+Pin 19 - GPIO10                Pin 20 - GND (Button 2)
+...                            ...
+Pin 35 - GPIO19 (Relay 2)      Pin 36 - GPIO16
+Pin 37 - GPIO26                Pin 38 - GPIO20
+Pin 39 - GND (Relay 2)         Pin 40 - GPIO21
 ```
 ### Relay Connections
 ```
